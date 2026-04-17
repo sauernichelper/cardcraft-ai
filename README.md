@@ -1,5 +1,7 @@
 # CardCraft AI
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/sauernichelper/cardcraft-ai&env=DATABASE_URL,NEXTAUTH_SECRET,NEXTAUTH_URL,OPENAI_API_KEY&project-name=cardcraft-ai&repository-name=cardcraft-ai)
+
 AI-powered flashcard generator with spaced repetition.
 
 CardCraft AI helps learners turn study material into reviewable flashcards, organize content into decks, and retain knowledge using a spaced repetition workflow inspired by the SM-2 algorithm. It combines AI-assisted card generation with a lightweight study experience built for fast iteration and daily review.
@@ -105,33 +107,27 @@ CardCraft AI stores review history and updates each card's interval, ease factor
 
 CardCraft AI can be deployed to Vercel with PostgreSQL and the required environment variables configured.
 
+### Deploy with Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsauernichelper%2Fcardcraft-ai&project-name=cardcraft-ai&repository-name=cardcraft-ai)
+
 ### Recommended Vercel Setup
 
-1. Push the repository to GitHub, GitLab, or Bitbucket.
-2. Import the project into Vercel.
-3. Vercel will detect the project as Next.js automatically. The repository includes `vercel.json` with explicit install and build commands:
-
-   ```json
-   {
-     "framework": "nextjs",
-     "installCommand": "npm install",
-     "buildCommand": "npm run build"
-   }
-   ```
-
-4. Add the required environment variables in the Vercel project settings:
+1. Import the GitHub repository into Vercel.
+2. Confirm the framework preset is `Next.js`.
+3. Add the production environment variables in Vercel Project Settings:
    - `DATABASE_URL`
    - `NEXTAUTH_URL`
    - `NEXTAUTH_SECRET`
    - `OPENAI_API_KEY`
-5. Set `NEXTAUTH_URL` to your production domain, for example `https://your-domain.vercel.app`.
-6. Run Prisma migrations against the production database:
+4. Set `NEXTAUTH_URL` to the production domain that Vercel will serve, for example `https://cardcraft-ai.vercel.app`.
+5. Run production migrations against the production database:
 
    ```bash
    npx prisma migrate deploy
    ```
 
-7. Deploy the project.
+6. If you want GitHub Actions to be the only deployment path, keep the repository `vercel.json` setting `git.deploymentEnabled` disabled so Vercel does not create duplicate Git-based deployments alongside the workflow.
 
 ### One-Click Vercel Checklist
 
@@ -139,12 +135,60 @@ CardCraft AI can be deployed to Vercel with PostgreSQL and the required environm
 - `npm run build` is used as the production build command.
 - `build`, `start`, and `lint` scripts are present in `package.json`.
 - `.vercelignore` excludes local env files, `node_modules`, and the Next.js cache from uploads.
+- `vercel.json` pins the primary execution region to `iad1`, extends the flashcard generation API timeout, adds baseline security headers, and disables duplicate Git auto-deploys.
 - `next.config.ts` stays empty for Vercel's default Next.js runtime. Do not set `output: "standalone"` unless you are building a Docker image outside Vercel.
+
+### GitHub Actions Production Deployment
+
+This repository includes `.github/workflows/deploy.yml` for production deployments on every push to `main`.
+
+Add these GitHub repository secrets before enabling the workflow:
+
+- `VERCEL_TOKEN`: personal or team token with access to the target Vercel project
+- `VERCEL_ORG_ID`: Vercel team or personal account ID
+- `VERCEL_PROJECT_ID`: Vercel project ID
+
+The workflow installs dependencies, runs `npm run lint`, and then deploys to the Vercel production environment using `BetaHuhn/deploy-to-vercel-action@v1`.
+
+### Manual Vercel CLI Deployment
+
+For a one-time manual setup:
+
+```bash
+chmod +x scripts/vercel-setup.sh
+./scripts/vercel-setup.sh
+```
+
+To upload the required production variables from your local shell into Vercel and deploy immediately:
+
+```bash
+export DATABASE_URL="postgresql://..."
+export NEXTAUTH_URL="https://cardcraft-ai.vercel.app"
+export NEXTAUTH_SECRET="replace-with-a-long-random-secret"
+export OPENAI_API_KEY="sk-..."
+
+./scripts/vercel-setup.sh --deploy
+```
+
+If you prefer the raw Vercel CLI flow instead of the helper script:
+
+```bash
+npx vercel link
+npx vercel env add DATABASE_URL production
+npx vercel env add NEXTAUTH_URL production
+npx vercel env add NEXTAUTH_SECRET production
+npx vercel env add OPENAI_API_KEY production
+npx vercel pull --yes --environment=production
+npx vercel build --prod
+npx vercel deploy --prebuilt --prod
+```
 
 ### Deployment Notes
 
 - Make sure your PostgreSQL database is reachable from Vercel.
 - Use a strong production value for `NEXTAUTH_SECRET`.
+- Store application secrets in Vercel Project Settings or add them with `vercel env add`; do not commit secrets to `vercel.json`, workflow files, or `.env.example`.
+- The GitHub Actions workflow only needs `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` in GitHub. Application runtime secrets stay in Vercel.
 - Confirm that your OpenAI billing and API access are active before enabling AI generation in production.
 - If you use a managed database provider such as Neon, Supabase, or Vercel Postgres, update `DATABASE_URL` accordingly.
 - Vercel recommends storing environment variables in Project Settings instead of committing them to `vercel.json`.
