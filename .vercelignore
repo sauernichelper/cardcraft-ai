@@ -1,8 +1,4 @@
 .env
-.env.local
-.env.*.local
+.env.*
 node_modules
-.next
-.vercel
-*.log
-prisma/migrations/
+.next/cache

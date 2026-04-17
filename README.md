@@ -14,7 +14,7 @@ CardCraft AI helps learners turn study material into reviewable flashcards, orga
 
 ## 🛠️ Tech Stack
 
-- Next.js 14
+- Next.js 16
 - TypeScript
 - Prisma + PostgreSQL
 - NextAuth.js
@@ -109,19 +109,37 @@ CardCraft AI can be deployed to Vercel with PostgreSQL and the required environm
 
 1. Push the repository to GitHub, GitLab, or Bitbucket.
 2. Import the project into Vercel.
-3. Add the required environment variables in the Vercel project settings:
+3. Vercel will detect the project as Next.js automatically. The repository includes `vercel.json` with explicit install and build commands:
+
+   ```json
+   {
+     "framework": "nextjs",
+     "installCommand": "npm install",
+     "buildCommand": "npm run build"
+   }
+   ```
+
+4. Add the required environment variables in the Vercel project settings:
    - `DATABASE_URL`
    - `NEXTAUTH_URL`
    - `NEXTAUTH_SECRET`
    - `OPENAI_API_KEY`
-4. Set `NEXTAUTH_URL` to your production domain, for example `https://your-domain.vercel.app`.
-5. Run Prisma migrations against the production database:
+5. Set `NEXTAUTH_URL` to your production domain, for example `https://your-domain.vercel.app`.
+6. Run Prisma migrations against the production database:
 
    ```bash
    npx prisma migrate deploy
    ```
 
-6. Deploy the project.
+7. Deploy the project.
+
+### One-Click Vercel Checklist
+
+- `npm install` runs automatically on Vercel, and `postinstall` triggers `prisma generate`.
+- `npm run build` is used as the production build command.
+- `build`, `start`, and `lint` scripts are present in `package.json`.
+- `.vercelignore` excludes local env files, `node_modules`, and the Next.js cache from uploads.
+- `next.config.ts` stays empty for Vercel's default Next.js runtime. Do not set `output: "standalone"` unless you are building a Docker image outside Vercel.
 
 ### Deployment Notes
 
@@ -129,6 +147,7 @@ CardCraft AI can be deployed to Vercel with PostgreSQL and the required environm
 - Use a strong production value for `NEXTAUTH_SECRET`.
 - Confirm that your OpenAI billing and API access are active before enabling AI generation in production.
 - If you use a managed database provider such as Neon, Supabase, or Vercel Postgres, update `DATABASE_URL` accordingly.
+- Vercel recommends storing environment variables in Project Settings instead of committing them to `vercel.json`.
 
 ## License
 
