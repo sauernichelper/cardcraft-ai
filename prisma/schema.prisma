@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String?
+  image         String?
+  decks         Deck[]
+  studySessions StudySession[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Deck {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards       Card[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Card {
+  id            String         @id @default(cuid())
+  front         String
+  back          String
+  deckId        String
+  deck          Deck           @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  nextReview    DateTime       @default(now())
+  interval      Int            @default(1)
+  easeFactor    Float          @default(2.5)
+  repetitions   Int            @default(0)
+  suspended     Boolean        @default(false)
+  studySessions StudySession[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([deckId])
+  @@index([nextReview])
+}
+
+model StudySession {
+  id        String      @id @default(cuid())
+  cardId    String
+  userId    String
+  result    StudyResult
+  timestamp DateTime    @default(now())
+  card      Card        @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, timestamp])
+  @@index([cardId, timestamp])
+}
+
+enum StudyResult {
+  again
+  good
+}
