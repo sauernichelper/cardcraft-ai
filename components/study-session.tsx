@@ -25,6 +25,18 @@ type StudySessionProps = {
   cards: StudySessionCard[];
 };
 
+function isObjectPayload(payload: unknown): payload is Record<string, unknown> {
+  return typeof payload === "object" && payload !== null;
+}
+
+function getErrorMessage(payload: unknown) {
+  if (isObjectPayload(payload) && typeof payload.error === "string") {
+    return payload.error;
+  }
+
+  return null;
+}
+
 export function StudySession({
   deckId,
   deckTitle,
@@ -57,10 +69,10 @@ export function StudySession({
         }),
       });
 
-      const payload = (await response.json()) as { error?: string };
+      const payload: unknown = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to save study result.");
+        throw new Error(getErrorMessage(payload) || "Failed to save study result.");
       }
 
       setCards((currentCards) => {

@@ -28,6 +28,22 @@ type DeckListProps = {
   decks: DeckListItem[];
 };
 
+function isObjectPayload(payload: unknown): payload is Record<string, unknown> {
+  return typeof payload === "object" && payload !== null;
+}
+
+function getErrorMessage(payload: unknown) {
+  if (isObjectPayload(payload) && typeof payload.error === "string") {
+    return payload.error;
+  }
+
+  return null;
+}
+
+function isCreatedDeckResponse(payload: unknown): payload is { id: string } {
+  return isObjectPayload(payload) && typeof payload.id === "string";
+}
+
 export function DeckList({ decks }: DeckListProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -49,10 +65,14 @@ export function DeckList({ decks }: DeckListProps) {
         }),
       });
 
-      const payload = (await response.json()) as { id?: string; error?: string };
+      const payload: unknown = await response.json();
 
-      if (!response.ok || !payload.id) {
-        throw new Error(payload.error || "Failed to create deck.");
+      if (!response.ok) {
+        throw new Error(getErrorMessage(payload) || "Failed to create deck.");
+      }
+
+      if (!isCreatedDeckResponse(payload)) {
+        throw new Error("Failed to create deck.");
       }
 
       router.refresh();

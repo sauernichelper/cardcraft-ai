@@ -36,16 +36,54 @@ type CardGeneratorProps = {
 
 const NEW_DECK_VALUE = "__new__";
 
+function isObjectPayload(payload: unknown): payload is Record<string, unknown> {
+  return typeof payload === "object" && payload !== null;
+}
+
 function isDeckOptionsResponse(
-  payload: Array<{ id: string; title: string }> | { error?: string },
+  payload: unknown,
 ): payload is Array<{ id: string; title: string }> {
-  return Array.isArray(payload);
+  return (
+    Array.isArray(payload) &&
+    payload.every(
+      (deck) =>
+        isObjectPayload(deck) &&
+        typeof deck.id === "string" &&
+        typeof deck.title === "string",
+    )
+  );
 }
 
 function isGeneratedCardsResponse(
-  payload: GeneratedCard[] | { error?: string },
+  payload: unknown,
 ): payload is GeneratedCard[] {
-  return Array.isArray(payload);
+  return (
+    Array.isArray(payload) &&
+    payload.every(
+      (card) =>
+        isObjectPayload(card) &&
+        typeof card.front === "string" &&
+        typeof card.back === "string",
+    )
+  );
+}
+
+function getErrorMessage(payload: unknown) {
+  if (isObjectPayload(payload) && typeof payload.error === "string") {
+    return payload.error;
+  }
+
+  return null;
+}
+
+function isCreatedDeckResponse(
+  payload: unknown,
+): payload is { id: string; title: string } {
+  return (
+    isObjectPayload(payload) &&
+    typeof payload.id === "string" &&
+    typeof payload.title === "string"
+  );
 }
 
 export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
@@ -74,17 +112,17 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
 
       try {
         const response = await fetch("/api/decks");
-        const payload = (await response.json()) as
-          | Array<{ id: string; title: string }>
-          | { error?: string };
+        const payload: unknown = await response.json();
 
         if (!response.ok) {
-          throw new Error(
-            "error" in payload ? payload.error || "Failed to load decks." : "Failed to load decks.",
-          );
+          throw new Error(getErrorMessage(payload) || "Failed to load decks.");
         }
 
-        if (!cancelled && isDeckOptionsResponse(payload)) {
+        if (!isDeckOptionsResponse(payload)) {
+          throw new Error("Failed to load decks.");
+        }
+
+        if (!cancelled) {
           setDecks(payload.map((deck) => ({ id: deck.id, title: deck.title })));
         }
       } catch (caughtError) {
@@ -122,16 +160,10 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
           body: JSON.stringify({ text: notes }),
         });
 
-        const payload = (await response.json()) as
-          | GeneratedCard[]
-          | { error?: string };
+        const payload: unknown = await response.json();
 
         if (!response.ok) {
-          throw new Error(
-            "error" in payload
-              ? payload.error || "Failed to generate cards."
-              : "Failed to generate cards.",
-          );
+          throw new Error(getErrorMessage(payload) || "Failed to generate cards.");
         }
 
         if (!isGeneratedCardsResponse(payload)) {
@@ -184,10 +216,10 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
       return;
     }
 
-    const payload = (await response.json()) as { error?: string };
+    const payload: unknown = await response.json();
 
     if (!response.ok) {
-      throw new Error(payload.error || "Failed to save card.");
+      throw new Error(getErrorMessage(payload) || "Failed to save card.");
     }
 
     setGeneratedCards((currentCards) =>
@@ -238,14 +270,14 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
         }),
       });
 
-      const payload = (await response.json()) as {
-        id?: string;
-        title?: string;
-        error?: string;
-      };
+      const payload: unknown = await response.json();
 
-      if (!response.ok || !payload.id || !payload.title) {
-        throw new Error(payload.error || "Failed to create deck.");
+      if (!response.ok) {
+        throw new Error(getErrorMessage(payload) || "Failed to create deck.");
+      }
+
+      if (!isCreatedDeckResponse(payload)) {
+        throw new Error("Failed to create deck.");
       }
 
       const createdDeck: DeckOption = {

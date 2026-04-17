@@ -29,6 +29,18 @@ type DeckDetailProps = {
   initialCards: DeckDetailCard[];
 };
 
+function isObjectPayload(payload: unknown): payload is Record<string, unknown> {
+  return typeof payload === "object" && payload !== null;
+}
+
+function getErrorMessage(payload: unknown) {
+  if (isObjectPayload(payload) && typeof payload.error === "string") {
+    return payload.error;
+  }
+
+  return null;
+}
+
 export function DeckDetail({ deck, initialCards }: DeckDetailProps) {
   const [cards, setCards] = useState(initialCards);
   const [savingCardId, setSavingCardId] = useState<string | null>(null);
@@ -58,14 +70,10 @@ export function DeckDetail({ deck, initialCards }: DeckDetailProps) {
         }),
       });
 
-      const payload = (await response.json()) as {
-        error?: string;
-        front?: string;
-        back?: string;
-      };
+      const payload: unknown = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to save card.");
+        throw new Error(getErrorMessage(payload) || "Failed to save card.");
       }
 
       setCards((currentCards) =>
@@ -73,8 +81,14 @@ export function DeckDetail({ deck, initialCards }: DeckDetailProps) {
           currentCard.id === card.id
             ? {
                 ...currentCard,
-                front: payload.front ?? card.front,
-                back: payload.back ?? card.back,
+                front:
+                  isObjectPayload(payload) && typeof payload.front === "string"
+                    ? payload.front
+                    : card.front,
+                back:
+                  isObjectPayload(payload) && typeof payload.back === "string"
+                    ? payload.back
+                    : card.back,
               }
             : currentCard,
         ),
@@ -99,8 +113,8 @@ export function DeckDetail({ deck, initialCards }: DeckDetailProps) {
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
-        throw new Error(payload.error || "Failed to delete card.");
+        const payload: unknown = await response.json();
+        throw new Error(getErrorMessage(payload) || "Failed to delete card.");
       }
 
       setCards((currentCards) =>
