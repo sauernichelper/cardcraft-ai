@@ -13,6 +13,8 @@ import {
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function DeckPage(props: PageProps<"/deck/[id]">) {
   const { id } = await props.params;
   const user = await getCurrentUser();

@@ -4,6 +4,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { calculateNextReview, type ReviewResult } from "@/lib/spaced-repetition";
 
+export const dynamic = "force-dynamic";
+
 type CreateCardBody = {
   deckId?: string;
   front?: string;
@@ -109,7 +111,7 @@ export async function PATCH(request: Request) {
   }
 
   if (body.result) {
-    const updatedCard = calculateNextReview(body.result, existingCard);
+    const updatedCard = calculateNextReview(existingCard, body.result);
 
     const [card] = await prisma.$transaction([
       prisma.card.update({

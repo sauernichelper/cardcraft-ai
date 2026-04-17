@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { assertOpenAIKey, openai } from "@/lib/openai";
 
+export const dynamic = "force-dynamic";
+
 type GeneratedCard = {
   front: string;
   back: string;
