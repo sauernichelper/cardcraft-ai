@@ -36,6 +36,18 @@ type CardGeneratorProps = {
 
 const NEW_DECK_VALUE = "__new__";
 
+function isDeckOptionsResponse(
+  payload: Array<{ id: string; title: string }> | { error?: string },
+): payload is Array<{ id: string; title: string }> {
+  return Array.isArray(payload);
+}
+
+function isGeneratedCardsResponse(
+  payload: GeneratedCard[] | { error?: string },
+): payload is GeneratedCard[] {
+  return Array.isArray(payload);
+}
+
 export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
   const router = useRouter();
   const [notes, setNotes] = useState("");
@@ -72,7 +84,7 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
           );
         }
 
-        if (!cancelled) {
+        if (!cancelled && isDeckOptionsResponse(payload)) {
           setDecks(payload.map((deck) => ({ id: deck.id, title: deck.title })));
         }
       } catch (caughtError) {
@@ -120,6 +132,10 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
               ? payload.error || "Failed to generate cards."
               : "Failed to generate cards.",
           );
+        }
+
+        if (!isGeneratedCardsResponse(payload)) {
+          throw new Error("Failed to generate cards.");
         }
 
         setGeneratedCards(

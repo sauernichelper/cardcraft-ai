@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,12 +26,6 @@ export function StudyCard({ card, onResult }: StudyCardProps) {
   const [isFlipped, setIsFlipped] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingResult, setPendingResult] = useState<"again" | "good" | null>(null);
-
-  useEffect(() => {
-    setIsFlipped(false);
-    setError(null);
-    setPendingResult(null);
-  }, [card.id]);
 
   async function handleResult(result: "again" | "good") {
     setPendingResult(result);

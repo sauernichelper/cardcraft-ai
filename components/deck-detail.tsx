@@ -34,10 +34,11 @@ export function DeckDetail({ deck, initialCards }: DeckDetailProps) {
   const [savingCardId, setSavingCardId] = useState<string | null>(null);
   const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [referenceTime] = useState(() => Date.now());
 
-  const now = Date.now();
   const dueCount = cards.filter(
-    (card) => !card.suspended && new Date(card.nextReview).getTime() <= now,
+    (card) =>
+      !card.suspended && new Date(card.nextReview).getTime() <= referenceTime,
   ).length;
 
   async function handleSave(card: EditableCard) {

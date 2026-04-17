@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -40,11 +40,6 @@ export function CardEditor({
   const [front, setFront] = useState(card.front);
   const [back, setBack] = useState(card.back);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setFront(card.front);
-    setBack(card.back);
-  }, [card.back, card.front, card.id]);
 
   function updateFront(value: string) {
     setFront(value);

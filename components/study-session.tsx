@@ -120,7 +120,7 @@ export function StudySession({
         {isPending ? " • Saving..." : ""}
       </div>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      <StudyCard card={currentCard} onResult={handleResult} />
+      <StudyCard key={currentCard.id} card={currentCard} onResult={handleResult} />
     </div>
   );
 }

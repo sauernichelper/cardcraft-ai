@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -50,19 +50,26 @@ export function DeckForm({
   const isOpen = open ?? internalOpen;
   const setIsOpen = onOpenChange ?? setInternalOpen;
 
-  useEffect(() => {
-    if (!isOpen) {
-      setDeckTitle("");
-      setDeckDescription("");
-      setLocalError(null);
+  function resetForm() {
+    setDeckTitle("");
+    setDeckDescription("");
+    setLocalError(null);
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetForm();
     }
-  }, [isOpen]);
+
+    setIsOpen(nextOpen);
+  }
 
   async function handleSave() {
     setLocalError(null);
 
     try {
       await onSave(deckTitle.trim(), deckDescription.trim());
+      resetForm();
       setIsOpen(false);
     } catch (caughtError) {
       setLocalError(
@@ -72,7 +79,7 @@ export function DeckForm({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" disabled={disabled}>
           {triggerLabel}
@@ -118,7 +125,7 @@ export function DeckForm({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => setIsOpen(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={isSaving}
           >
             {cancelLabel}
