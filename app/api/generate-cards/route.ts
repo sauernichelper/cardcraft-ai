@@ -1,14 +1,14 @@
+import { PDFParse } from "pdf-parse";
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { getOpenAIClient } from "@/lib/openai";
-import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type GenerateCardsBody = {
   text?: string;
-  deckId?: string;
 };
 
 type GeneratedCard = {
@@ -38,6 +38,15 @@ const flashcardSchema = {
   },
 } as const;
 
+class RequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 function normalizeGeneratedCards(input: unknown) {
   if (!Array.isArray(input)) {
     return [];
@@ -66,34 +75,91 @@ function normalizeGeneratedCards(input: unknown) {
     .filter((card) => card.front.length > 0 && card.back.length > 0);
 }
 
-export async function POST(request: Request) {
+function isPdfFile(file: File) {
+  const fileName = file.name.toLowerCase();
+  return file.type === "application/pdf" || fileName.endsWith(".pdf");
+}
+
+async function extractPdfText(file: File) {
+  if (!isPdfFile(file)) {
+    throw new RequestError("Only PDF files are supported for uploads.", 400);
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  if (buffer.byteLength === 0) {
+    throw new RequestError("The selected PDF is empty.", 400);
+  }
+
+  const parser = new PDFParse({ data: buffer });
+
   try {
-    const user = await getCurrentUser();
-    const body = (await request.json()) as GenerateCardsBody;
-    const text = body.text?.trim();
-    const deckId = body.deckId?.trim();
+    const result = await parser.getText();
+    const text = result.text.trim();
 
     if (!text) {
-      return NextResponse.json({ error: "Text is required." }, { status: 400 });
+      throw new RequestError(
+        "This PDF does not contain readable text. Try a different file.",
+        400,
+      );
     }
 
-    if (!deckId) {
-      return NextResponse.json({ error: "Deck id is required." }, { status: 400 });
+    return text;
+  } catch (error) {
+    if (error instanceof RequestError) {
+      throw error;
     }
 
-    const deck = await prisma.deck.findFirst({
-      where: {
-        id: deckId,
-        userId: user.id,
-      },
-      select: {
-        id: true,
-      },
-    });
+    throw new RequestError(
+      "We couldn't read that PDF. Check the file and try again.",
+      400,
+    );
+  } finally {
+    await parser.destroy();
+  }
+}
 
-    if (!deck) {
-      return NextResponse.json({ error: "Deck not found." }, { status: 404 });
+async function getSourceText(request: Request) {
+  const contentType = request.headers.get("content-type") ?? "";
+
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    const textValue = formData.get("text");
+    const fileValue = formData.get("file");
+    const text = typeof textValue === "string" ? textValue.trim() : "";
+
+    if (fileValue instanceof File && fileValue.size > 0) {
+      return extractPdfText(fileValue);
     }
+
+    if (text) {
+      return text;
+    }
+
+    throw new RequestError("Add notes or upload a PDF to generate cards.", 400);
+  }
+
+  if (contentType.includes("application/json")) {
+    const body = (await request.json()) as GenerateCardsBody;
+    const text = body.text?.trim();
+
+    if (!text) {
+      throw new RequestError("Text is required.", 400);
+    }
+
+    return text;
+  }
+
+  throw new RequestError(
+    "Unsupported request format. Send JSON text or multipart form data.",
+    415,
+  );
+}
+
+export async function POST(request: Request) {
+  try {
+    await getCurrentUser();
+    const text = await getSourceText(request);
 
     const response = await getOpenAIClient().responses.create({
       model: "gpt-5.2",
@@ -121,29 +187,12 @@ export async function POST(request: Request) {
       throw new Error("The model did not return any usable flashcards.");
     }
 
-    const createdCards = await prisma.$transaction(async (tx) => {
-      const created = await Promise.all(
-        cards.map((card) =>
-          tx.card.create({
-            data: {
-              deckId: deck.id,
-              front: card.front,
-              back: card.back,
-            },
-          }),
-        ),
-      );
-
-      await tx.deck.update({
-        where: { id: deck.id },
-        data: { updatedAt: new Date() },
-      });
-
-      return created;
-    });
-
-    return NextResponse.json(createdCards, { status: 201 });
+    return NextResponse.json(cards, { status: 200 });
   } catch (error) {
+    if (error instanceof RequestError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     const message =
       error instanceof Error ? error.message : "Failed to generate flashcards.";
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FileText, Upload } from "lucide-react";
 
 import { CardEditor, type EditableCard } from "@/components/card-editor";
 import { DeckForm } from "@/components/deck-form";
@@ -14,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -21,7 +23,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 type DeckOption = {
   id: string;
@@ -35,6 +39,10 @@ type CardGeneratorProps = {
 };
 
 const NEW_DECK_VALUE = "__new__";
+const INPUT_MODE_TEXT = "text";
+const INPUT_MODE_PDF = "pdf";
+
+type InputMode = typeof INPUT_MODE_TEXT | typeof INPUT_MODE_PDF;
 
 function isObjectPayload(payload: unknown): payload is Record<string, unknown> {
   return typeof payload === "object" && payload !== null;
@@ -89,6 +97,9 @@ function isCreatedDeckResponse(
 export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
   const router = useRouter();
   const [notes, setNotes] = useState("");
+  const [inputMode, setInputMode] = useState<InputMode>(INPUT_MODE_TEXT);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragActive, setIsDragActive] = useState(false);
   const [generatedCards, setGeneratedCards] = useState<GeneratedCard[]>([]);
   const [decks, setDecks] = useState<DeckOption[]>(initialDecks ?? []);
   const [selectedDeckId, setSelectedDeckId] = useState(NEW_DECK_VALUE);
@@ -145,6 +156,34 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
     };
   }, [initialDecks]);
 
+  function validatePdfFile(file: File) {
+    const fileName = file.name.toLowerCase();
+
+    if (file.type === "application/pdf" || fileName.endsWith(".pdf")) {
+      return null;
+    }
+
+    return "Upload a PDF file to generate cards from a document.";
+  }
+
+  function handleFileSelection(file: File | null) {
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    const validationError = validatePdfFile(file);
+
+    if (validationError) {
+      setSelectedFile(null);
+      setError(validationError);
+      return;
+    }
+
+    setError(null);
+    setSelectedFile(file);
+  }
+
   function handleGenerate() {
     setError(null);
 
@@ -152,13 +191,29 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
       setIsGeneratePending(true);
 
       try {
-        const response = await fetch("/api/generate-cards", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ text: notes }),
-        });
+        let response: Response;
+
+        if (inputMode === INPUT_MODE_PDF) {
+          if (!selectedFile) {
+            throw new Error("Select a PDF before generating cards.");
+          }
+
+          const formData = new FormData();
+          formData.append("file", selectedFile);
+
+          response = await fetch("/api/generate-cards", {
+            method: "POST",
+            body: formData,
+          });
+        } else {
+          response = await fetch("/api/generate-cards", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ text: notes }),
+          });
+        }
 
         const payload: unknown = await response.json();
 
@@ -303,28 +358,132 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
     }
   }
 
+  const canGenerate = inputMode === INPUT_MODE_PDF
+    ? Boolean(selectedFile)
+    : Boolean(notes.trim());
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Generate Cards</CardTitle>
         <CardDescription>
-          Paste study notes, choose where the cards should go, and edit results before saving.
+          Paste study notes or upload a PDF, then edit the generated cards before saving.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="card-generator-notes">
-            Notes
-          </label>
-          <Textarea
-            id="card-generator-notes"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Paste notes here..."
-            className="min-h-40"
-            disabled={isGeneratePending}
-          />
-        </div>
+        <Tabs
+          value={inputMode}
+          onValueChange={(value) => {
+            setInputMode(value as InputMode);
+            setError(null);
+          }}
+          className="space-y-3"
+        >
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value={INPUT_MODE_TEXT}>Paste Text</TabsTrigger>
+            <TabsTrigger value={INPUT_MODE_PDF}>Upload PDF</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value={INPUT_MODE_TEXT} className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="card-generator-notes">
+              Notes
+            </label>
+            <Textarea
+              id="card-generator-notes"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Paste lecture notes, study guides, or textbook excerpts here..."
+              className="min-h-40"
+              disabled={isGeneratePending}
+            />
+            <p className="text-sm text-muted-foreground">
+              Best for quick note dumps and copied reading material.
+            </p>
+          </TabsContent>
+
+          <TabsContent value={INPUT_MODE_PDF} className="space-y-3">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">PDF</p>
+              <label
+                htmlFor="card-generator-file"
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setIsDragActive(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setIsDragActive(true);
+                }}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    return;
+                  }
+                  setIsDragActive(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setIsDragActive(false);
+                  handleFileSelection(event.dataTransfer.files[0] ?? null);
+                }}
+                className={cn(
+                  "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-8 text-center transition-colors",
+                  isDragActive
+                    ? "border-foreground bg-muted/70"
+                    : "border-border bg-muted/30 hover:border-foreground/40 hover:bg-muted/50",
+                  isGeneratePending && "pointer-events-none opacity-60",
+                )}
+              >
+                <div className="rounded-full bg-background p-3 shadow-sm">
+                  {selectedFile ? (
+                    <FileText className="size-5" aria-hidden="true" />
+                  ) : (
+                    <Upload className="size-5" aria-hidden="true" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <p className="font-medium">
+                    {selectedFile ? "Replace PDF" : "Drag and drop a PDF here"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Or click to browse for a study handout, article, or chapter.
+                  </p>
+                </div>
+              </label>
+              <Input
+                id="card-generator-file"
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                disabled={isGeneratePending}
+                onChange={(event) => {
+                  handleFileSelection(event.target.files?.[0] ?? null);
+                }}
+              />
+              {selectedFile ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
+                  <span className="truncate font-medium">{selectedFile.name}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-auto px-2 py-1 text-muted-foreground"
+                    disabled={isGeneratePending}
+                    onClick={() => {
+                      setSelectedFile(null);
+                      setError(null);
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Only PDF files are supported. Scanned PDFs without selectable text may fail.
+                </p>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
 
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="card-generator-deck">
@@ -385,7 +544,7 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
         />
         <Button
           onClick={handleGenerate}
-          disabled={isGeneratePending || !notes.trim()}
+          disabled={isGeneratePending || !canGenerate}
         >
           {isGeneratePending ? "Generating..." : "Generate"}
         </Button>
