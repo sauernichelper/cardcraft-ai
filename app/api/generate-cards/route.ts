@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 
-import { assertOpenAIKey, openai } from "@/lib/openai";
+import { getCurrentUser } from "@/lib/auth";
+import { getOpenAIClient } from "@/lib/openai";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
+
+type GenerateCardsBody = {
+  text?: string;
+  deckId?: string;
+};
 
 type GeneratedCard = {
   front: string;
@@ -10,59 +17,132 @@ type GeneratedCard = {
   type: string;
 };
 
-function extractJsonArray(content: string) {
-  const trimmed = content.trim();
+const CARD_TYPES = ["definition", "concept", "qa", "fact"] as const;
 
-  if (trimmed.startsWith("[")) {
-    return trimmed;
+const flashcardSchema = {
+  type: "array",
+  minItems: 3,
+  maxItems: 20,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["front", "back", "type"],
+    properties: {
+      front: { type: "string" },
+      back: { type: "string" },
+      type: {
+        type: "string",
+        enum: [...CARD_TYPES],
+      },
+    },
+  },
+} as const;
+
+function normalizeGeneratedCards(input: unknown) {
+  if (!Array.isArray(input)) {
+    return [];
   }
 
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) {
-    return fenced[1].trim();
-  }
+  return input
+    .filter((card): card is GeneratedCard => {
+      if (!card || typeof card !== "object") {
+        return false;
+      }
 
-  const start = trimmed.indexOf("[");
-  const end = trimmed.lastIndexOf("]");
-
-  if (start >= 0 && end > start) {
-    return trimmed.slice(start, end + 1);
-  }
-
-  return trimmed;
+      const candidate = card as Partial<GeneratedCard>;
+      return (
+        typeof candidate.front === "string" &&
+        typeof candidate.back === "string" &&
+        typeof candidate.type === "string"
+      );
+    })
+    .map((card) => ({
+      front: card.front.trim(),
+      back: card.back.trim(),
+      type: CARD_TYPES.includes(card.type as (typeof CARD_TYPES)[number])
+        ? card.type
+        : "concept",
+    }))
+    .filter((card) => card.front.length > 0 && card.back.length > 0);
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { text?: string };
+    const user = await getCurrentUser();
+    const body = (await request.json()) as GenerateCardsBody;
     const text = body.text?.trim();
+    const deckId = body.deckId?.trim();
 
     if (!text) {
       return NextResponse.json({ error: "Text is required." }, { status: 400 });
     }
 
-    assertOpenAIKey();
+    if (!deckId) {
+      return NextResponse.json({ error: "Deck id is required." }, { status: 400 });
+    }
 
-    const response = await openai.responses.create({
-      model: "gpt-5.2",
-      instructions:
-        "You convert study notes into concise flashcards. Return only valid JSON. " +
-        "The response must be a JSON array of 6 to 12 objects shaped exactly like " +
-        '{ "front": string, "back": string, "type": "definition" | "concept" | "qa" | "fact" }. ' +
-        "Fronts should be short prompts. Backs should be accurate, direct study answers.",
-      input: text,
+    const deck = await prisma.deck.findFirst({
+      where: {
+        id: deckId,
+        userId: user.id,
+      },
+      select: {
+        id: true,
+      },
     });
 
-    const parsed = JSON.parse(extractJsonArray(response.output_text)) as GeneratedCard[];
-    const cards = parsed
-      .filter((card) => card.front?.trim() && card.back?.trim())
-      .map((card) => ({
-        front: card.front.trim(),
-        back: card.back.trim(),
-        type: card.type?.trim() || "concept",
-      }));
+    if (!deck) {
+      return NextResponse.json({ error: "Deck not found." }, { status: 404 });
+    }
 
-    return NextResponse.json(cards);
+    const response = await getOpenAIClient().responses.create({
+      model: "gpt-5.2",
+      instructions:
+        "Generate exam-relevant flashcards from this text. Return JSON array: " +
+        "[{ front: question, back: answer, type: definition | concept | qa | fact }]. " +
+        "Make fronts concise and testable. Make backs accurate, direct, and study-ready. " +
+        "Focus on key definitions, concepts, facts, and likely exam questions.",
+      input: text,
+      max_output_tokens: 1400,
+      text: {
+        verbosity: "low",
+        format: {
+          type: "json_schema",
+          name: "flashcards",
+          strict: true,
+          schema: flashcardSchema,
+        },
+      },
+    });
+
+    const cards = normalizeGeneratedCards(JSON.parse(response.output_text));
+
+    if (cards.length === 0) {
+      throw new Error("The model did not return any usable flashcards.");
+    }
+
+    const createdCards = await prisma.$transaction(async (tx) => {
+      const created = await Promise.all(
+        cards.map((card) =>
+          tx.card.create({
+            data: {
+              deckId: deck.id,
+              front: card.front,
+              back: card.back,
+            },
+          }),
+        ),
+      );
+
+      await tx.deck.update({
+        where: { id: deck.id },
+        data: { updatedAt: new Date() },
+      });
+
+      return created;
+    });
+
+    return NextResponse.json(createdCards, { status: 201 });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to generate flashcards.";

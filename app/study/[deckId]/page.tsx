@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { StudyCard } from "@/components/study-card";
+import { StudySession } from "@/components/study-session";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -74,15 +74,13 @@ export default async function StudyPage(props: PageProps<"/study/[deckId]">) {
             </CardContent>
           </Card>
         ) : (
-          <StudyCard
+          <StudySession
             deckId={deck.id}
             deckTitle={deck.title}
             cards={deck.cards.map((card) => ({
               id: card.id,
               front: card.front,
               back: card.back,
-              interval: card.interval,
-              repetitions: card.repetitions,
             }))}
           />
         )}

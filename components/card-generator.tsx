@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { SparklesIcon, WandSparklesIcon } from "lucide-react";
 
+import { CardEditor, type EditableCard } from "@/components/card-editor";
+import { DeckForm } from "@/components/deck-form";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,203 +15,327 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-type GeneratedCard = {
-  front: string;
-  back: string;
-  type: string;
+type DeckOption = {
+  id: string;
+  title: string;
 };
 
-export function CardGenerator() {
+type GeneratedCard = EditableCard;
+
+type CardGeneratorProps = {
+  decks?: DeckOption[];
+};
+
+const NEW_DECK_VALUE = "__new__";
+
+export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
   const router = useRouter();
-  const [text, setText] = useState("");
-  const [deckTitle, setDeckTitle] = useState("");
-  const [deckDescription, setDeckDescription] = useState("");
-  const [cards, setCards] = useState<GeneratedCard[]>([]);
+  const [notes, setNotes] = useState("");
+  const [generatedCards, setGeneratedCards] = useState<GeneratedCard[]>([]);
+  const [decks, setDecks] = useState<DeckOption[]>(initialDecks ?? []);
+  const [selectedDeckId, setSelectedDeckId] = useState(NEW_DECK_VALUE);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [isGenerating, startGenerating] = useTransition();
-  const [isSaving, startSaving] = useTransition();
+  const [deckError, setDeckError] = useState<string | null>(null);
+  const [isLoadingDecks, setIsLoadingDecks] = useState(!initialDecks);
+  const [isGeneratePending, setIsGeneratePending] = useState(false);
+  const [isCreateDeckPending, setIsCreateDeckPending] = useState(false);
+  const [savingCardId, setSavingCardId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialDecks) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadDecks() {
+      setIsLoadingDecks(true);
+      setDeckError(null);
+
+      try {
+        const response = await fetch("/api/decks");
+        const payload = (await response.json()) as
+          | Array<{ id: string; title: string }>
+          | { error?: string };
+
+        if (!response.ok) {
+          throw new Error(
+            "error" in payload ? payload.error || "Failed to load decks." : "Failed to load decks.",
+          );
+        }
+
+        if (!cancelled) {
+          setDecks(payload.map((deck) => ({ id: deck.id, title: deck.title })));
+        }
+      } catch (caughtError) {
+        if (!cancelled) {
+          setDeckError(
+            caughtError instanceof Error ? caughtError.message : "Failed to load decks.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingDecks(false);
+        }
+      }
+    }
+
+    void loadDecks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialDecks]);
 
   function handleGenerate() {
     setError(null);
 
-    startGenerating(async () => {
+    void (async () => {
+      setIsGeneratePending(true);
+
       try {
         const response = await fetch("/api/generate-cards", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text: notes }),
         });
 
-        const payload = await response.json();
+        const payload = (await response.json()) as
+          | GeneratedCard[]
+          | { error?: string };
 
         if (!response.ok) {
-          throw new Error(payload.error || "Failed to generate flashcards.");
+          throw new Error(
+            "error" in payload
+              ? payload.error || "Failed to generate cards."
+              : "Failed to generate cards.",
+          );
         }
 
-        setCards(payload);
-        setDeckTitle((current) => current || "New CardCraft deck");
+        setGeneratedCards(
+          payload.map((card, index) => ({
+            id: `${Date.now()}-${index}`,
+            front: card.front,
+            back: card.back,
+          })),
+        );
       } catch (caughtError) {
         setError(
-          caughtError instanceof Error
-            ? caughtError.message
-            : "Failed to generate flashcards.",
+          caughtError instanceof Error ? caughtError.message : "Failed to generate cards.",
         );
+      } finally {
+        setIsGeneratePending(false);
       }
-    });
+    })();
   }
 
-  function handleSaveDeck() {
+  function updateGeneratedCard(cardId: string, updates: Partial<GeneratedCard>) {
+    setGeneratedCards((currentCards) =>
+      currentCards.map((card) =>
+        card.id === cardId ? { ...card, ...updates } : card,
+      ),
+    );
+  }
+
+  async function saveGeneratedCard(card: GeneratedCard) {
+    if (selectedDeckId === NEW_DECK_VALUE) {
+      throw new Error("Select an existing deck or create a new deck first.");
+    }
+
+    const response = await fetch("/api/cards", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        deckId: selectedDeckId,
+        front: card.front,
+        back: card.back,
+      }),
+    });
+
+    if (response.status === 204) {
+      return;
+    }
+
+    const payload = (await response.json()) as { error?: string };
+
+    if (!response.ok) {
+      throw new Error(payload.error || "Failed to save card.");
+    }
+
+    setGeneratedCards((currentCards) =>
+      currentCards.filter((currentCard) => currentCard.id !== card.id),
+    );
+    router.refresh();
+  }
+
+  async function handleSaveCard(card: GeneratedCard) {
+    setSavingCardId(card.id);
     setError(null);
 
-    startSaving(async () => {
-      try {
-        const response = await fetch("/api/decks", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            title: deckTitle,
-            description: deckDescription,
-            cards,
-          }),
-        });
+    try {
+      await saveGeneratedCard(card);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Failed to save card.");
+      throw caughtError;
+    } finally {
+      setSavingCardId(null);
+    }
+  }
 
-        const payload = await response.json();
+  function handleDeleteCard(cardId: string) {
+    setGeneratedCards((currentCards) =>
+      currentCards.filter((card) => card.id !== cardId),
+    );
+  }
 
-        if (!response.ok) {
-          throw new Error(payload.error || "Failed to save deck.");
-        }
+  async function handleCreateDeck(title: string, description: string) {
+    setError(null);
 
-        setOpen(false);
-        setText("");
-        setCards([]);
-        setDeckDescription("");
-        setDeckTitle("");
-        router.push(`/deck/${payload.id}`);
-        router.refresh();
-      } catch (caughtError) {
-        setError(
-          caughtError instanceof Error ? caughtError.message : "Failed to save deck.",
-        );
+    setIsCreateDeckPending(true);
+
+    try {
+      const cards = generatedCards
+        .filter((card) => card.front.trim() && card.back.trim())
+        .map(({ front, back }) => ({ front, back }));
+
+      const response = await fetch("/api/decks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          description,
+          cards,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        id?: string;
+        title?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.id || !payload.title) {
+        throw new Error(payload.error || "Failed to create deck.");
       }
-    });
+
+      setDecks((currentDecks) => [
+        { id: payload.id, title: payload.title },
+        ...currentDecks,
+      ]);
+      setSelectedDeckId(payload.id);
+      setGeneratedCards([]);
+      setNotes("");
+      router.refresh();
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : "Failed to create deck.";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsCreateDeckPending(false);
+    }
   }
 
   return (
-    <Card className="border-0 bg-white/85 shadow-lg shadow-amber-950/8 ring-1 ring-amber-900/10 backdrop-blur">
+    <Card>
       <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-xl">Generate cards from notes</CardTitle>
-            <CardDescription>
-              Paste a lecture summary, article excerpt, or study guide and turn it into a deck.
-            </CardDescription>
-          </div>
-          <Badge variant="secondary" className="bg-amber-100 text-amber-900">
-            AI-assisted
-          </Badge>
-        </div>
+        <CardTitle>Generate Cards</CardTitle>
+        <CardDescription>
+          Paste study notes, choose where the cards should go, and edit results before saving.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Textarea
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder="Paste study notes here. Include key concepts, definitions, dates, formulas, or processes."
-          className="min-h-48 resize-y border-amber-900/10 bg-white"
-        />
-        {error ? (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-        ) : null}
-        {cards.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {cards.map((card, index) => (
-              <Card
-                key={`${card.front}-${index}`}
-                size="sm"
-                className="border border-amber-900/10 bg-amber-50/70"
-              >
-                <CardHeader className="gap-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle>{card.front}</CardTitle>
-                    <Badge variant="outline">{card.type}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm leading-6 text-muted-foreground">{card.back}</p>
-                </CardContent>
-              </Card>
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="card-generator-notes">
+            Notes
+          </label>
+          <Textarea
+            id="card-generator-notes"
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Paste notes here..."
+            className="min-h-40"
+            disabled={isGeneratePending}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="card-generator-deck">
+            Deck
+          </label>
+          <Select
+            value={selectedDeckId}
+            onValueChange={setSelectedDeckId}
+            disabled={isLoadingDecks || isCreateDeckPending}
+          >
+            <SelectTrigger id="card-generator-deck" className="w-full">
+              <SelectValue placeholder="Select a deck" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NEW_DECK_VALUE}>Create a new deck</SelectItem>
+              {decks.map((deck) => (
+                <SelectItem key={deck.id} value={deck.id}>
+                  {deck.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {isLoadingDecks ? (
+            <p className="text-sm text-muted-foreground">Loading decks...</p>
+          ) : null}
+          {deckError ? <p className="text-sm text-destructive">{deckError}</p> : null}
+        </div>
+
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+        {generatedCards.length > 0 ? (
+          <div className="space-y-3">
+            {generatedCards.map((card) => (
+              <CardEditor
+                key={card.id}
+                card={card}
+                onChange={(updates) => updateGeneratedCard(card.id, updates)}
+                onSave={() => handleSaveCard(card)}
+                onDelete={() => {
+                  handleDeleteCard(card.id);
+                }}
+                isSaving={savingCardId === card.id}
+                disableSave={selectedDeckId === NEW_DECK_VALUE}
+              />
             ))}
           </div>
         ) : null}
       </CardContent>
-      <CardFooter className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-amber-50 to-orange-50">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <SparklesIcon className="size-4 text-amber-700" />
-          <span>{cards.length > 0 ? `${cards.length} cards ready to save.` : "No cards generated yet."}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            onClick={handleGenerate}
-            disabled={isGenerating || !text.trim()}
-            className="bg-amber-900 text-amber-50 hover:bg-amber-800"
-          >
-            <WandSparklesIcon className="size-4" />
-            {isGenerating ? "Generating..." : "Generate cards"}
-          </Button>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" disabled={cards.length === 0}>
-                Save as deck
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Save generated deck</DialogTitle>
-                <DialogDescription>
-                  Give the deck a clear title so it is easy to revisit later.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <Input
-                  value={deckTitle}
-                  onChange={(event) => setDeckTitle(event.target.value)}
-                  placeholder="Biology midterm review"
-                />
-                <Textarea
-                  value={deckDescription}
-                  onChange={(event) => setDeckDescription(event.target.value)}
-                  placeholder="Optional description"
-                  className="min-h-24"
-                />
-              </div>
-              <DialogFooter>
-                <Button
-                  onClick={handleSaveDeck}
-                  disabled={isSaving || !deckTitle.trim()}
-                  className="bg-amber-900 text-amber-50 hover:bg-amber-800"
-                >
-                  {isSaving ? "Saving..." : "Create deck"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+      <CardFooter className="justify-between gap-3">
+        <DeckForm
+          triggerLabel="Create Deck"
+          title="Create Deck"
+          description="Create a deck and save the generated cards into it."
+          saveLabel="Save Deck"
+          onSave={handleCreateDeck}
+          isSaving={isCreateDeckPending}
+          disabled={generatedCards.length === 0}
+        />
+        <Button
+          onClick={handleGenerate}
+          disabled={isGeneratePending || !notes.trim()}
+        >
+          {isGeneratePending ? "Generating..." : "Generate"}
+        </Button>
       </CardFooter>
     </Card>
   );

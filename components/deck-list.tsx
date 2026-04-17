@@ -1,7 +1,10 @@
-import Link from "next/link";
-import { BookOpenIcon, Clock3Icon, Layers3Icon } from "lucide-react";
+"use client";
 
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { DeckForm } from "@/components/deck-form";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,56 +29,89 @@ type DeckListProps = {
 };
 
 export function DeckList({ decks }: DeckListProps) {
-  if (decks.length === 0) {
-    return (
-      <Card className="border border-dashed border-amber-900/20 bg-white/70">
-        <CardHeader>
-          <CardTitle>No decks yet</CardTitle>
-          <CardDescription>
-            Generate a set of flashcards from notes or create a deck through the API.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+
+  async function handleCreateDeck(title: string, description: string) {
+    setError(null);
+    setIsCreating(true);
+
+    try {
+      const response = await fetch("/api/decks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          description,
+        }),
+      });
+
+      const payload = (await response.json()) as { id?: string; error?: string };
+
+      if (!response.ok || !payload.id) {
+        throw new Error(payload.error || "Failed to create deck.");
+      }
+
+      router.refresh();
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : "Failed to create deck.";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsCreating(false);
+    }
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {decks.map((deck) => (
-        <Card key={deck.id} className="border-0 bg-white/85 shadow-lg shadow-amber-950/8 ring-1 ring-amber-900/10">
-          <CardHeader className="gap-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-lg">{deck.title}</CardTitle>
-                <CardDescription className="mt-1">
-                  {deck.description || "No description yet."}
-                </CardDescription>
-              </div>
-              <Badge variant={deck.dueCount > 0 ? "default" : "secondary"}>
-                {deck.dueCount} due
-              </Badge>
-            </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {decks.length} {decks.length === 1 ? "deck" : "decks"}
+        </p>
+        <DeckForm
+          onSave={handleCreateDeck}
+          isSaving={isCreating}
+          error={error}
+        />
+      </div>
+
+      {decks.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>No decks yet</CardTitle>
+            <CardDescription>Create a deck to start studying.</CardDescription>
           </CardHeader>
-          <CardContent className="flex gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Layers3Icon className="size-4" />
-              <span>{deck.cardCount} cards</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock3Icon className="size-4" />
-              <span>{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(deck.updatedAt)}</span>
-            </div>
+        </Card>
+      ) : null}
+
+      {decks.map((deck) => (
+        <Card key={deck.id}>
+          <CardHeader>
+            <CardTitle>{deck.title}</CardTitle>
+            <CardDescription>
+              {deck.description || "No description provided."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+            <span>{deck.cardCount} cards</span>
+            <span>{deck.dueCount} due</span>
           </CardContent>
-          <CardFooter className="flex items-center justify-between gap-3 bg-gradient-to-r from-amber-50 to-orange-50">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <BookOpenIcon className="size-4" />
-              <span>Review or inspect deck details.</span>
-            </div>
-            <div className="flex items-center gap-2">
+          <CardFooter className="justify-between gap-2">
+            <span className="text-sm text-muted-foreground">
+              Updated{" "}
+              {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(
+                new Date(deck.updatedAt),
+              )}
+            </span>
+            <div className="flex gap-2">
               <Button variant="outline" asChild>
-                <Link href={`/deck/${deck.id}`}>Open deck</Link>
+                <Link href={`/deck/${deck.id}`}>Open</Link>
               </Button>
-              <Button asChild className="bg-amber-900 text-amber-50 hover:bg-amber-800">
+              <Button asChild>
                 <Link href={`/study/${deck.id}`}>Study</Link>
               </Button>
             </div>
