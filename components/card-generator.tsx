@@ -248,11 +248,16 @@ export function CardGenerator({ decks: initialDecks }: CardGeneratorProps) {
         throw new Error(payload.error || "Failed to create deck.");
       }
 
+      const createdDeck: DeckOption = {
+        id: payload.id,
+        title: payload.title,
+      };
+
       setDecks((currentDecks) => [
-        { id: payload.id, title: payload.title },
+        createdDeck,
         ...currentDecks,
       ]);
-      setSelectedDeckId(payload.id);
+      setSelectedDeckId(createdDeck.id);
       setGeneratedCards([]);
       setNotes("");
       router.refresh();
