@@ -12,31 +12,27 @@ import {
 } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCardsDueForReview } from "@/lib/spaced-repetition";
 
 export const dynamic = "force-dynamic";
 
 export default async function StudyPage(props: PageProps<"/study/[deckId]">) {
   const { deckId } = await props.params;
   const user = await getCurrentUser();
-  const now = new Date();
 
-  const deck = await prisma.deck.findFirst({
-    where: {
-      id: deckId,
-      userId: user.id,
-    },
-    include: {
-      cards: {
-        where: {
-          suspended: false,
-          nextReview: {
-            lte: now,
-          },
-        },
-        orderBy: [{ nextReview: "asc" }, { createdAt: "asc" }],
+  const [deck, dueCards] = await Promise.all([
+    prisma.deck.findFirst({
+      where: {
+        id: deckId,
+        userId: user.id,
       },
-    },
-  });
+      select: {
+        id: true,
+        title: true,
+      },
+    }),
+    getCardsDueForReview(user.id, deckId),
+  ]);
 
   if (!deck) {
     notFound();
@@ -59,7 +55,7 @@ export default async function StudyPage(props: PageProps<"/study/[deckId]">) {
           </Button>
         </div>
 
-        {deck.cards.length === 0 ? (
+        {dueCards.length === 0 ? (
           <Card className="border-0 bg-white/85 shadow-lg shadow-amber-950/8 ring-1 ring-amber-900/10">
             <CardHeader>
               <CardTitle>No cards due</CardTitle>
@@ -77,7 +73,7 @@ export default async function StudyPage(props: PageProps<"/study/[deckId]">) {
           <StudySession
             deckId={deck.id}
             deckTitle={deck.title}
-            cards={deck.cards.map((card) => ({
+            cards={dueCards.map((card) => ({
               id: card.id,
               front: card.front,
               back: card.back,

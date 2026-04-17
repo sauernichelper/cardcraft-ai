@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 import { StudyCard } from "@/components/study-card";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -31,6 +33,7 @@ export function StudySession({
   const [cards, setCards] = useState(initialCards);
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const [completedCount, setCompletedCount] = useState(0);
 
   const currentCard = cards[0];
 
@@ -70,6 +73,7 @@ export function StudySession({
 
         return nextCards;
       });
+      setCompletedCount((currentCount) => currentCount + 1);
     } catch (caughtError) {
       const message =
         caughtError instanceof Error
@@ -91,8 +95,19 @@ export function StudySession({
             You reviewed every due card in {deckTitle}.
           </CardDescription>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Study route: /study/{deckId}
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {completedCount} {completedCount === 1 ? "review" : "reviews"} saved in
+            this session.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href={`/deck/${deckId}`}>Back to deck</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/">Return home</Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
