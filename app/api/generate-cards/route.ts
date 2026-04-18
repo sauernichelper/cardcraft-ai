@@ -2,7 +2,7 @@ import { PDFParse } from "pdf-parse";
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
-import { getOpenAIClient } from "@/lib/openai";
+import { getAIClient } from "@/lib/openai";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,25 +18,6 @@ type GeneratedCard = {
 };
 
 const CARD_TYPES = ["definition", "concept", "qa", "fact"] as const;
-
-const flashcardSchema = {
-  type: "array",
-  minItems: 3,
-  maxItems: 20,
-  items: {
-    type: "object",
-    additionalProperties: false,
-    required: ["front", "back", "type"],
-    properties: {
-      front: { type: "string" },
-      back: { type: "string" },
-      type: {
-        type: "string",
-        enum: [...CARD_TYPES],
-      },
-    },
-  },
-} as const;
 
 class RequestError extends Error {
   status: number;
@@ -160,28 +141,7 @@ export async function POST(request: Request) {
   try {
     await getCurrentUser();
     const text = await getSourceText(request);
-
-    const response = await getOpenAIClient().responses.create({
-      model: "gpt-5.2",
-      instructions:
-        "Generate exam-relevant flashcards from this text. Return JSON array: " +
-        "[{ front: question, back: answer, type: definition | concept | qa | fact }]. " +
-        "Make fronts concise and testable. Make backs accurate, direct, and study-ready. " +
-        "Focus on key definitions, concepts, facts, and likely exam questions.",
-      input: text,
-      max_output_tokens: 1400,
-      text: {
-        verbosity: "low",
-        format: {
-          type: "json_schema",
-          name: "flashcards",
-          strict: true,
-          schema: flashcardSchema,
-        },
-      },
-    });
-
-    const cards = normalizeGeneratedCards(JSON.parse(response.output_text));
+    const cards = normalizeGeneratedCards(await getAIClient().generateCards(text));
 
     if (cards.length === 0) {
       throw new Error("The model did not return any usable flashcards.");
